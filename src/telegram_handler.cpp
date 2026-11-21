@@ -2,7 +2,9 @@
 #include <UniversalTelegramBot.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
+#include <esp_task_wdt.h>
 #include "app.h"
+#include "backoff.h"
 #include "commands.h"
 #include "config.h"
 #include "secrets.h"
@@ -15,7 +17,10 @@ static const uint8_t OUTBOX_CAP = 10;
 static OutMsg outbox[OUTBOX_CAP];
 static uint8_t outHead = 0, outCount = 0;
 
-static uint32_t lastPoll = 0, nextTryAt = 0, backoffMs = 0;
+static uint32_t lastPoll = 0;
+static Backoff sendBackoff, pollBackoff;
+static bool pollTurn = false;
+static const uint8_t MAX_SEND_FAILURES = 4;  // then drop: e.g. 403 chat never started the bot
 
 static void enqueue(const String& chat, const String& text, int8_t slot) {
   if (outCount == OUTBOX_CAP) {  // drop oldest
@@ -150,51 +155,61 @@ static void handleCallback(const String& chat, const String& data) {
   }
 }
 
-static void fail(uint32_t now) {
-  backoffMs = backoffMs ? min<uint32_t>(backoffMs * 2, 300000) : 2000;
-  nextTryAt = now + backoffMs;
-}
-
 void tgBegin() {
   client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
   client.setTimeout(10);  // seconds
   bot.longPoll = 0;
 }
 
-void tgLoop(uint32_t now, bool online) {
-  if (!online || (int32_t)(now - nextTryAt) < 0) return;
-
-  if (outCount) {
-    OutMsg& m = outbox[outHead];
-    bool ok;
-    if (m.slot >= 0) {
-      String kb = "[[{\"text\":\"✅ Sudah minum\",\"callback_data\":\"taken:" + String(m.slot) +
-                  "\"},{\"text\":\"⏰ Tunda 10 menit\",\"callback_data\":\"snooze:" + String(m.slot) + "\"}]]";
-      ok = bot.sendMessageWithInlineKeyboard(m.chat, m.text, "", kb);
-    } else {
-      ok = bot.sendMessage(m.chat, m.text, "");
-    }
-    if (ok) {
-      outHead = (outHead + 1) % OUTBOX_CAP;
-      outCount--;
-      backoffMs = 0;
-    } else {
-      fail(now);
-    }
-    return;  // one HTTPS call per loop keeps the loop responsive
+static void sendOne(uint32_t now) {
+  OutMsg& m = outbox[outHead];
+  bool ok;
+  if (m.slot >= 0) {
+    String kb = "[[{\"text\":\"✅ Sudah minum\",\"callback_data\":\"taken:" + String(m.slot) +
+                "\"},{\"text\":\"⏰ Tunda 10 menit\",\"callback_data\":\"snooze:" + String(m.slot) + "\"}]]";
+    ok = bot.sendMessageWithInlineKeyboard(m.chat, m.text, "", kb);
+  } else {
+    ok = bot.sendMessage(m.chat, m.text, "");
   }
+  if (!ok) sendBackoff.fail(now);
+  if (ok || sendBackoff.failures() >= MAX_SEND_FAILURES) {
+    if (!ok) Serial.printf("[tg] drop message to %s after %u failures\n", m.chat.c_str(), sendBackoff.failures());
+    outHead = (outHead + 1) % OUTBOX_CAP;
+    outCount--;
+    sendBackoff.ok();
+  }
+}
 
-  if (now - lastPoll < TG_POLL_MS) return;
+static void pollOnce(uint32_t now) {
   lastPoll = now;
   int n = bot.getUpdates(bot.last_message_received + 1);
+  esp_task_wdt_reset();
+  if (n < 0) { pollBackoff.fail(now); return; }
+  pollBackoff.ok();
   for (int i = 0; i < n; i++) {
     telegramMessage& msg = bot.messages[i];
     if (!isAllowed(msg.chat_id.c_str(), ALLOWED_CHATS)) continue;  // ignore strangers silently
     if (msg.type == "callback_query") {
-      bot.answerCallbackQuery(msg.query_id);
       handleCallback(msg.chat_id, msg.text);
+      bot.answerCallbackQuery(msg.query_id);
+      esp_task_wdt_reset();
     } else {
       handleText(msg.chat_id, msg.text);
     }
+  }
+}
+
+// At most one blocking HTTPS round per loop; sends and polls alternate so a stuck
+// message can never starve incoming commands.
+void tgLoop(uint32_t now, bool online) {
+  if (!online) return;
+  bool canSend = outCount && sendBackoff.ready(now);
+  bool canPoll = now - lastPoll >= TG_POLL_MS && pollBackoff.ready(now);
+  if (canSend && (!canPoll || !pollTurn)) {
+    pollTurn = true;
+    sendOne(now);
+  } else if (canPoll) {
+    pollTurn = false;
+    pollOnce(now);
   }
 }

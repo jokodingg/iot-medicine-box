@@ -16,11 +16,13 @@ static Slot slots[3];
 static History history;
 static Debouncer reeds[3] = {Debouncer(DEBOUNCE_MS), Debouncer(DEBOUNCE_MS), Debouncer(DEBOUNCE_MS)};
 static SchedConfig schedCfg;
-static uint32_t lastScreen = 0, holdUntil = 0;
+static uint32_t lastScreen = 0, holdSince = 0;
+static bool holding = false;
 
 static void showMsg(const char* a, const char* b) {
   displayMsg(a, b);
-  holdUntil = millis() + 4000;  // keep message visible before idle screen returns
+  holdSince = millis();
+  holding = true;
 }
 
 static String hhmm(uint8_t h, uint8_t m) {
@@ -189,9 +191,12 @@ void loop() {
 
   if (now - lastScreen >= 1000) {
     lastScreen = now;
-    if (anyAlerting()) displayWake();
-    else if ((int32_t)(now - holdUntil) < 0) {}  // keep alert screen visible
-    else displayIdle(c, netOnline(), nextText(c).c_str());
+    if (anyAlerting()) displayWake();                    // keep alert screen visible
+    else if (holding && now - holdSince < 4000) {}       // keep short message visible
+    else {
+      holding = false;
+      displayIdle(c, netOnline(), nextText(c).c_str());
+    }
   }
   displayLoop(now);
 }
