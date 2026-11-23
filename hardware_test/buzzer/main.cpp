@@ -1,4 +1,4 @@
-// Tests the buzzer through the NPN transistor on GPIO7.
+// Tests the buzzer on GPIO7 (buzzer + to GPIO7, - to GND).
 // Step 1: plain HIGH/LOW (active buzzer beeps, passive buzzer only clicks).
 // Step 2: tone() sweep (passive buzzer plays pitches).
 #include <Arduino.h>
@@ -9,7 +9,7 @@ void setup() {
   delay(1500);
   pinMode(PIN_BUZZER, OUTPUT);
   digitalWrite(PIN_BUZZER, LOW);
-  Serial.println("\n[BUZZER] GPIO7 -> 1k -> NPN base");
+  Serial.println("\n[BUZZER] GPIO7");
 }
 
 void loop() {

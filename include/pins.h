@@ -5,4 +5,4 @@ constexpr int PIN_SDA = 8;
 constexpr int PIN_SCL = 9;
 constexpr int PIN_REED[3] = {3, 4, 5};  // Pagi, Siang, Malam
 constexpr int PIN_REED_SPARE = 6;
-constexpr int PIN_BUZZER = 7;            // via NPN transistor
+constexpr int PIN_BUZZER = 7;            // buzzer (+); buzzer (-) to GND
