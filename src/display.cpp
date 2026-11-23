@@ -59,7 +59,7 @@ void displayLoop(uint32_t now) {
   int32_t diff = (int32_t)(now - lastWake);
   uint32_t idle = diff > 0 ? (uint32_t)diff : 0;
   if (level == BRIGHT && idle >= DIM_AFTER_MS) { u8g2.setContrast(10); level = DIM; }
-  if (level == DIM && idle >= OFF_AFTER_MS) { u8g2.setPowerSave(1); level = OFF; }
+  if (OFF_AFTER_MS && level == DIM && idle >= OFF_AFTER_MS) { u8g2.setPowerSave(1); level = OFF; }
 }
 
 void displayIdle(const Clock& c, bool wifi, const char* nextText) {

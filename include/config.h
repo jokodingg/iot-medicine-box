@@ -19,7 +19,7 @@ constexpr uint8_t  MAX_REMINDERS = 3;
 
 constexpr uint16_t DEBOUNCE_MS = 50;
 constexpr uint32_t DIM_AFTER_MS = 30000;
-constexpr uint32_t OFF_AFTER_MS = 120000;
+constexpr uint32_t OFF_AFTER_MS = 0;  // 0 = never switch off, stay dimmed
 constexpr uint32_t WIFI_RETRY_MS = 10000;
 
 // Setup portal (WiFiManager). Opens when no WiFi is saved, after PORTAL_AFTER_OFFLINE_MS
