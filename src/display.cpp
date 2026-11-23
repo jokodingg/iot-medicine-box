@@ -62,18 +62,17 @@ void displayLoop(uint32_t now) {
   if (OFF_AFTER_MS && level == DIM && idle >= OFF_AFTER_MS) { u8g2.setPowerSave(1); level = OFF; }
 }
 
-void displayIdle(const Clock& c, bool wifi, const char* nextText) {
+void displayIdle(const Clock& c, const char* nextText) {
   if (level == OFF) return;
   char buf[24];
   u8g2.clearBuffer();
   u8g2.setFont(u8g2_font_6x10_tf);
-  u8g2.drawStr(0, 9, wifi ? "WiFi: OK" : "WiFi: --");
   if (c.valid) {
     time_t t = time(nullptr);
     struct tm tm;
     localtime_r(&t, &tm);
     snprintf(buf, sizeof buf, "%s %02d/%02d/%04d", HARI[tm.tm_wday], tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900);
-    u8g2.drawStr(128 - u8g2.getStrWidth(buf), 9, buf);
+    u8g2.drawStr((128 - u8g2.getStrWidth(buf)) / 2, 9, buf);  // date, centered
     snprintf(buf, sizeof buf, "%02d:%02d", c.h, c.m);
   } else {
     strcpy(buf, "--:--");

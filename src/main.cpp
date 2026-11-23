@@ -212,7 +212,7 @@ void loop() {
     else if (holding && now - holdSince < 4000) {}       // keep short message visible
     else {
       holding = false;
-      displayIdle(c, netOnline(), nextText(c).c_str());
+      displayIdle(c, nextText(c).c_str());
     }
   }
   displayLoop(now);
