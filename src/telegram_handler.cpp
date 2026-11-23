@@ -25,6 +25,7 @@ static uint32_t resetWifiAt = 0;   // main side
 static SemaphoreHandle_t lock;
 static QueueHandle_t inbox;
 static volatile bool paused = false;
+static volatile bool botReady = false;  // last poll succeeded
 static char pendingToken[64] = {};
 static bool tokenDirty = false;
 
@@ -260,8 +261,9 @@ static void sendOne(uint32_t now) {
 static void pollOnce(uint32_t now) {
   lastPoll = now;
   int n = bot.getUpdates(bot.last_message_received + 1);
-  if (n < 0) { pollBackoff.fail(now); return; }
+  if (n < 0) { pollBackoff.fail(now); botReady = false; return; }
   pollBackoff.ok();
+  botReady = true;
   for (int i = 0; i < n; i++) {
     telegramMessage& msg = bot.messages[i];
     InMsg m = {};
@@ -284,7 +286,7 @@ static void netStep(uint32_t now) {
   xSemaphoreGive(lock);
   if (dirty) bot.updateToken(token);
 
-  if (paused || WiFi.status() != WL_CONNECTED) return;
+  if (paused || WiFi.status() != WL_CONNECTED) { botReady = false; return; }
   bool canSend = haveOut && sendBackoff.ready(now);
   bool canPoll = now - lastPoll >= TG_POLL_MS && pollBackoff.ready(now);
   if (canSend && (!canPoll || !pollTurn)) {
@@ -302,6 +304,8 @@ static void netTask(void*) {
     vTaskDelay(pdMS_TO_TICKS(50));
   }
 }
+
+bool tgReady() { return botReady; }
 
 void tgBegin() {
   lock = xSemaphoreCreateMutex();

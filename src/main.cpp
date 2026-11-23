@@ -19,6 +19,7 @@ static Debouncer reeds[3] = {Debouncer(DEBOUNCE_MS), Debouncer(DEBOUNCE_MS), Deb
 static SchedConfig schedCfg;
 static uint32_t lastScreen = 0, holdSince = 0;
 static bool holding = false;
+static bool wasReady = false;
 
 static void showMsg(const char* a, const char* b) {
   displayMsg(a, b);
@@ -153,6 +154,7 @@ uint8_t appSnooze(uint16_t minutes) {
 void appMute() { buzzerMute(millis() + 3600000UL); }
 
 void appTest() {
+  displayReinit();
   buzzerStart(PAT_TEST);
   showMsg("Tes OLED", "Buzzer berbunyi");
 }
@@ -192,6 +194,12 @@ void loop() {
   }
 
   tgLoop(now, netPortalActive());
+  bool ready = tgReady();
+  if (ready && !wasReady) {
+    displayReinit();  // WiFi start-up is when the OLED is most likely to have browned out
+    showMsg("Terhubung", "WiFi + bot Telegram OK");
+  }
+  wasReady = ready;
   buzzerLoop(now);
 
   if (now - lastScreen >= 1000) {

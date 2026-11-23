@@ -16,9 +16,13 @@ static bool probe(uint8_t addr) {
   return Wire.endTransmission() == 0;
 }
 
+static uint8_t addr = OLED_ADDR;
+
 void displayBegin() {
   Wire.begin(PIN_SDA, PIN_SCL);
-  uint8_t addr = probe(OLED_ADDR) ? OLED_ADDR : OLED_ADDR_ALT;
+  bool a = probe(OLED_ADDR), b = probe(OLED_ADDR_ALT);
+  addr = (!a && b) ? OLED_ADDR_ALT : OLED_ADDR;  // default 0x3C unless only 0x3D answers
+  Serial.printf("[oled] ack 0x%02X=%d 0x%02X=%d, using 0x%02X\n", OLED_ADDR, a, OLED_ADDR_ALT, b, addr);
   u8g2.setI2CAddress(addr * 2);
   u8g2.begin();
   u8g2.setContrast(255);
@@ -26,10 +30,21 @@ void displayBegin() {
   lastWake = millis();
 }
 
+// Re-sends the SSD1306 init sequence. A supply dip (e.g. WiFi TX burst) can reset
+// the OLED controller to display-off while the ESP32 keeps running.
+void displayReinit() {
+  bool ok = probe(addr);
+  Serial.printf("[oled] reinit 0x%02X ack=%d\n", addr, ok);
+  u8g2.begin();
+  u8g2.setContrast(255);
+  level = BRIGHT;
+  lastWake = millis();
+}
+
 void displayWake() {
   lastWake = millis();
-  if (level != BRIGHT) {
-    u8g2.setPowerSave(0);
+  if (level == OFF) displayReinit();  // also recovers a controller that reset while off
+  else if (level != BRIGHT) {
     u8g2.setContrast(255);
     level = BRIGHT;
   }
@@ -38,7 +53,11 @@ void displayWake() {
 bool displayIsOff() { return level == OFF; }
 
 void displayLoop(uint32_t now) {
-  uint32_t idle = now - lastWake;
+  // `now` is sampled at the top of loop(); a wake later in the same iteration sets
+  // lastWake > now. Unsigned subtraction would then wrap to ~49 days and switch the
+  // screen off at once, so treat a negative difference as zero.
+  int32_t diff = (int32_t)(now - lastWake);
+  uint32_t idle = diff > 0 ? (uint32_t)diff : 0;
   if (level == BRIGHT && idle >= DIM_AFTER_MS) { u8g2.setContrast(10); level = DIM; }
   if (level == DIM && idle >= OFF_AFTER_MS) { u8g2.setPowerSave(1); level = OFF; }
 }

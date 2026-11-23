@@ -6,5 +6,7 @@ void tgBegin();
 // Handles received commands on the caller's task; pauses the network task while
 // the setup portal is open.
 void tgLoop(uint32_t now, bool portalActive);
+// True while WiFi is up and the last Telegram poll succeeded.
+bool tgReady();
 // Queue a message for every whitelisted chat. slot >= 0 adds inline buttons for that slot.
 void tgBroadcast(const String& text, int8_t slot = -1);
