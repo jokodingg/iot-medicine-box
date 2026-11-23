@@ -20,6 +20,13 @@ constexpr uint16_t DEBOUNCE_MS = 50;
 constexpr uint32_t DIM_AFTER_MS = 30000;
 constexpr uint32_t OFF_AFTER_MS = 120000;
 constexpr uint32_t WIFI_RETRY_MS = 10000;
+
+// Setup portal (WiFiManager). Opens when no WiFi is saved, after PORTAL_AFTER_OFFLINE_MS
+// offline, or on /setup. Closes after PORTAL_TIMEOUT_S without a save.
+constexpr const char* SETUP_AP_NAME = "MedicineBox";
+constexpr const char* SETUP_AP_PASS = "obat1234";  // min. 8 characters
+constexpr uint32_t PORTAL_AFTER_OFFLINE_MS = 60000;
+constexpr uint16_t PORTAL_TIMEOUT_S = 180;
 constexpr uint32_t TG_POLL_MS = 3000;
 constexpr uint32_t WDT_TIMEOUT_S = 30;
 

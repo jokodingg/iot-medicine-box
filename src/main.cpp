@@ -9,6 +9,7 @@
 #include "net.h"
 #include "pins.h"
 #include "scheduler.h"
+#include "settings.h"
 #include "storage.h"
 #include "telegram_handler.h"
 
@@ -156,6 +157,9 @@ void appTest() {
   showMsg("Tes OLED", "Buzzer berbunyi");
 }
 
+void appStartSetup() { netStartPortal(); }
+void appResetWifi() { netResetWifi(); }
+
 // ---- Arduino ----
 void setup() {
   Serial.begin(115200);
@@ -166,6 +170,7 @@ void setup() {
   storageBegin();
   storageLoadSlots(slots);
   storageLoadHistory(history);
+  settingsBegin();
   netBegin();
   tgBegin();
   setupWatchdog();
@@ -186,12 +191,16 @@ void loop() {
     onEvent(i, schedulerTick(slots[i], c, opened, schedCfg));
   }
 
-  tgLoop(now, netOnline());
+  tgLoop(now, netPortalActive());
   buzzerLoop(now);
 
   if (now - lastScreen >= 1000) {
     lastScreen = now;
-    if (anyAlerting()) displayWake();                    // keep alert screen visible
+    if (anyAlerting()) displayWake();
+    else if (netPortalActive()) {
+      String l2 = String(SETUP_AP_NAME) + "/" + SETUP_AP_PASS;
+      displayMsg("Setup WiFi", l2.c_str());
+    }                    // keep alert screen visible
     else if (holding && now - holdSince < 4000) {}       // keep short message visible
     else {
       holding = false;

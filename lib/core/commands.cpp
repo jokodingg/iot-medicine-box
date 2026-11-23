@@ -39,7 +39,8 @@ Parsed parseCommand(const char* text) {
 
   struct { const char* w; Cmd c; } simple[] = {
       {"start", Cmd::START}, {"bantuan", Cmd::HELP}, {"help", Cmd::HELP}, {"status", Cmd::STATUS},
-      {"jadwal", Cmd::JADWAL}, {"riwayat", Cmd::RIWAYAT}, {"diam", Cmd::DIAM}, {"tes", Cmd::TES}};
+      {"jadwal", Cmd::JADWAL}, {"riwayat", Cmd::RIWAYAT}, {"diam", Cmd::DIAM}, {"tes", Cmd::TES},
+      {"setup", Cmd::SETUP}, {"resetwifi", Cmd::RESETWIFI}};
   for (auto& s : simple)
     if (!strcmp(word, s.w)) { r.cmd = s.c; return r; }
 

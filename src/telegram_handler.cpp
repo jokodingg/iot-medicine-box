@@ -1,16 +1,38 @@
 #include "telegram_handler.h"
 #include <UniversalTelegramBot.h>
+#include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <time.h>
-#include <esp_task_wdt.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
+#include <freertos/task.h>
 #include "app.h"
 #include "backoff.h"
 #include "commands.h"
 #include "config.h"
-#include "secrets.h"
+#include "settings.h"
 
 static WiFiClientSecure client;
-static UniversalTelegramBot bot(BOT_TOKEN, client);
+static UniversalTelegramBot bot("", client);
+static uint32_t settingsRev = 0;   // main side
+static uint32_t resetWifiAt = 0;   // main side
+
+// Threading: the network task owns `bot` and `client` and only does HTTPS.
+// Commands are parsed and executed on the main loop, so app state is never
+// touched from two tasks. Shared data: outbox + pending token (under `lock`),
+// inbox (FreeRTOS queue), `paused` flag.
+static SemaphoreHandle_t lock;
+static QueueHandle_t inbox;
+static volatile bool paused = false;
+static char pendingToken[64] = {};
+static bool tokenDirty = false;
+
+struct InMsg {
+  char chat[24];
+  char text[160];
+  bool callback;
+};
 
 struct OutMsg { String chat; String text; int8_t slot; };
 static const uint8_t OUTBOX_CAP = 10;
@@ -23,16 +45,18 @@ static bool pollTurn = false;
 static const uint8_t MAX_SEND_FAILURES = 4;  // then drop: e.g. 403 chat never started the bot
 
 static void enqueue(const String& chat, const String& text, int8_t slot) {
+  xSemaphoreTake(lock, portMAX_DELAY);
   if (outCount == OUTBOX_CAP) {  // drop oldest
     outHead = (outHead + 1) % OUTBOX_CAP;
     outCount--;
   }
   outbox[(outHead + outCount) % OUTBOX_CAP] = {chat, text, slot};
   outCount++;
+  xSemaphoreGive(lock);
 }
 
 void tgBroadcast(const String& text, int8_t slot) {
-  String list = ALLOWED_CHATS;
+  String list = settingsChats();
   int start = 0;
   while (start < (int)list.length()) {
     int comma = list.indexOf(',', start);
@@ -71,6 +95,8 @@ static String helpText() {
            "/tunda <menit> - tunda pengingat (default 10)\n"
            "/diam - matikan buzzer 1 jam\n"
            "/tes - tes buzzer dan OLED\n"
+           "/setup - buka mode setup WiFi/bot 3 menit\n"
+           "/resetwifi - hapus WiFi tersimpan lalu restart ke mode setup\n"
            "/bantuan - pesan ini\n\n"
            "Slot: 1=Pagi, 2=Siang, 3=Malam");
 }
@@ -137,6 +163,19 @@ static void handleText(const String& chat, const String& text) {
     }
     case Cmd::DIAM: appMute(); reply(chat, "🔇 Buzzer dimatikan selama 1 jam."); break;
     case Cmd::TES: appTest(); reply(chat, "🔔 Tes buzzer dan OLED dijalankan."); break;
+    case Cmd::SETUP:
+      appStartSetup();
+      reply(chat, String("📶 Mode setup aktif ") + (PORTAL_TIMEOUT_S / 60) + " menit.\n"
+                  "1. Sambungkan HP ke WiFi \"" + SETUP_AP_NAME + "\" (password " + SETUP_AP_PASS + ").\n"
+                  "2. Buka 192.168.4.1 jika halaman tidak muncul otomatis.\n"
+                  "3. Pilih \"Configure WiFi\", isi WiFi, token, dan chat ID, lalu Save.");
+      break;
+    case Cmd::RESETWIFI:
+      resetWifiAt = millis() + 3000;  // let the reply go out first
+      reply(chat, String("📶 WiFi tersimpan akan dihapus dan board restart.\n"
+                         "Lalu sambungkan HP ke WiFi \"") + SETUP_AP_NAME + "\" (password " + SETUP_AP_PASS +
+                         ") dan buka 192.168.4.1.");
+      break;
     case Cmd::INVALID: reply(chat, "⚠️ Format salah. Ketik /bantuan untuk contoh."); break;
     case Cmd::UNKNOWN: reply(chat, "Perintah tidak dikenal. Ketik /bantuan."); break;
   }
@@ -155,14 +194,48 @@ static void handleCallback(const String& chat, const String& data) {
   }
 }
 
-void tgBegin() {
-  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
-  client.setTimeout(10);  // seconds
-  bot.longPoll = 0;
+// ---- main loop side ----
+
+static void applySettings() {
+  settingsRev = settingsRevision();
+  xSemaphoreTake(lock, portMAX_DELAY);
+  strncpy(pendingToken, settingsToken(), sizeof pendingToken - 1);
+  tokenDirty = true;
+  xSemaphoreGive(lock);
 }
 
+static uint8_t outboxSize() {
+  xSemaphoreTake(lock, portMAX_DELAY);
+  uint8_t n = outCount;
+  xSemaphoreGive(lock);
+  return n;
+}
+
+void tgLoop(uint32_t now, bool portalActive) {
+  paused = portalActive;  // leave the radio to the setup portal
+  if (settingsRev != settingsRevision()) applySettings();
+
+  InMsg m;
+  while (xQueueReceive(inbox, &m, 0) == pdTRUE) {
+    if (!isAllowed(m.chat, settingsChats())) continue;  // ignore strangers silently
+    if (m.callback) handleCallback(m.chat, m.text);
+    else handleText(m.chat, m.text);
+  }
+
+  if (resetWifiAt) {
+    int32_t since = (int32_t)(now - resetWifiAt);
+    if ((since >= 0 && outboxSize() == 0) || since >= 15000) appResetWifi();  // 15 s: reply stuck, reset anyway
+  }
+}
+
+// ---- network task side ----
+
 static void sendOne(uint32_t now) {
-  OutMsg& m = outbox[outHead];
+  xSemaphoreTake(lock, portMAX_DELAY);
+  if (!outCount) { xSemaphoreGive(lock); return; }
+  OutMsg m = outbox[outHead];  // copy, then send without holding the lock
+  xSemaphoreGive(lock);
+
   bool ok;
   if (m.slot >= 0) {
     String kb = "[[{\"text\":\"✅ Sudah minum\",\"callback_data\":\"taken:" + String(m.slot) +
@@ -174,8 +247,12 @@ static void sendOne(uint32_t now) {
   if (!ok) sendBackoff.fail(now);
   if (ok || sendBackoff.failures() >= MAX_SEND_FAILURES) {
     if (!ok) Serial.printf("[tg] drop message to %s after %u failures\n", m.chat.c_str(), sendBackoff.failures());
-    outHead = (outHead + 1) % OUTBOX_CAP;
-    outCount--;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    if (outCount) {  // enqueue may have dropped the oldest meanwhile; pop whatever is at the head
+      outHead = (outHead + 1) % OUTBOX_CAP;
+      outCount--;
+    }
+    xSemaphoreGive(lock);
     sendBackoff.ok();
   }
 }
@@ -183,27 +260,32 @@ static void sendOne(uint32_t now) {
 static void pollOnce(uint32_t now) {
   lastPoll = now;
   int n = bot.getUpdates(bot.last_message_received + 1);
-  esp_task_wdt_reset();
   if (n < 0) { pollBackoff.fail(now); return; }
   pollBackoff.ok();
   for (int i = 0; i < n; i++) {
     telegramMessage& msg = bot.messages[i];
-    if (!isAllowed(msg.chat_id.c_str(), ALLOWED_CHATS)) continue;  // ignore strangers silently
-    if (msg.type == "callback_query") {
-      handleCallback(msg.chat_id, msg.text);
-      bot.answerCallbackQuery(msg.query_id);
-      esp_task_wdt_reset();
-    } else {
-      handleText(msg.chat_id, msg.text);
-    }
+    InMsg m = {};
+    strncpy(m.chat, msg.chat_id.c_str(), sizeof m.chat - 1);
+    strncpy(m.text, msg.text.c_str(), sizeof m.text - 1);
+    m.callback = msg.type == "callback_query";
+    if (m.callback) bot.answerCallbackQuery(msg.query_id);
+    if (xQueueSend(inbox, &m, 0) != pdTRUE) Serial.println("[tg] inbox full, message dropped");
   }
 }
 
-// At most one blocking HTTPS round per loop; sends and polls alternate so a stuck
-// message can never starve incoming commands.
-void tgLoop(uint32_t now, bool online) {
-  if (!online) return;
-  bool canSend = outCount && sendBackoff.ready(now);
+// At most one blocking HTTPS round per iteration; sends and polls alternate so a
+// stuck message can never starve incoming commands.
+static void netStep(uint32_t now) {
+  xSemaphoreTake(lock, portMAX_DELAY);
+  bool dirty = tokenDirty;
+  String token = pendingToken;
+  tokenDirty = false;
+  bool haveOut = outCount > 0;
+  xSemaphoreGive(lock);
+  if (dirty) bot.updateToken(token);
+
+  if (paused || WiFi.status() != WL_CONNECTED) return;
+  bool canSend = haveOut && sendBackoff.ready(now);
   bool canPoll = now - lastPoll >= TG_POLL_MS && pollBackoff.ready(now);
   if (canSend && (!canPoll || !pollTurn)) {
     pollTurn = true;
@@ -212,4 +294,23 @@ void tgLoop(uint32_t now, bool online) {
     pollTurn = false;
     pollOnce(now);
   }
+}
+
+static void netTask(void*) {
+  for (;;) {
+    netStep(millis());
+    vTaskDelay(pdMS_TO_TICKS(50));
+  }
+}
+
+void tgBegin() {
+  lock = xSemaphoreCreateMutex();
+  inbox = xQueueCreate(8, sizeof(InMsg));
+  client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
+  client.setTimeout(10);  // seconds
+  bot.longPoll = 0;
+  applySettings();
+  // TLS needs a large stack. Same priority as loopTask; it blocks on the network,
+  // so the main loop keeps running while a request is in flight.
+  xTaskCreate(netTask, "tg", 12288, nullptr, 1, nullptr);
 }

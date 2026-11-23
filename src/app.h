@@ -14,3 +14,5 @@ uint8_t appSnooze(uint16_t minutes);  // returns number of slots snoozed
 bool appSnoozeSlot(uint8_t slot, uint16_t minutes);
 void appMute();
 void appTest();
+void appStartSetup();
+void appResetWifi();  // open the WiFi/bot setup portal

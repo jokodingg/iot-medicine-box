@@ -1,7 +1,7 @@
 #pragma once
 #include <stdint.h>
 
-enum class Cmd : uint8_t { START, HELP, STATUS, JADWAL, SET, HAPUS, RIWAYAT, TUNDA, DIAM, TES, UNKNOWN, INVALID };
+enum class Cmd : uint8_t { START, HELP, STATUS, JADWAL, SET, HAPUS, RIWAYAT, TUNDA, DIAM, TES, SETUP, RESETWIFI, UNKNOWN, INVALID };
 
 struct Parsed {
   Cmd cmd;

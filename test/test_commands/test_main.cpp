@@ -12,6 +12,8 @@ void test_simple_commands() {
   TEST_ASSERT_EQUAL(Cmd::RIWAYAT, parseCommand("/riwayat").cmd);
   TEST_ASSERT_EQUAL(Cmd::DIAM, parseCommand("/diam").cmd);
   TEST_ASSERT_EQUAL(Cmd::TES, parseCommand("/tes").cmd);
+  TEST_ASSERT_EQUAL(Cmd::SETUP, parseCommand("/setup").cmd);
+  TEST_ASSERT_EQUAL(Cmd::RESETWIFI, parseCommand("/resetwifi").cmd);
   TEST_ASSERT_EQUAL(Cmd::UNKNOWN, parseCommand("halo").cmd);
   TEST_ASSERT_EQUAL(Cmd::UNKNOWN, parseCommand("/foo").cmd);
 }

@@ -15,11 +15,23 @@ Wiring: lihat [WIRING.md](WIRING.md). Checklist uji: [TESTING.md](TESTING.md).
 3. Ambil angka di `"chat":{"id": ...}`. Alternatif: chat **@userinfobot**.
 4. Untuk grup keluarga: tambahkan bot ke grup, kirim pesan, ID grup diawali `-100`.
 
-## 3. Isi kredensial
-```bash
-cp include/secrets.example.h include/secrets.h
-```
-Edit `include/secrets.h`: `WIFI_SSID`, `WIFI_PASS`, `BOT_TOKEN`, `ALLOWED_CHATS` (pisahkan dengan koma). File ini tidak ikut git. WiFi harus 2.4 GHz.
+## 3. Isi WiFi, token, dan chat ID
+Semua diisi lewat halaman setup (captive portal), tanpa compile ulang.
+
+1. Nyalakan board. Jika belum ada WiFi tersimpan, OLED menampilkan `Setup WiFi` dan board membuat WiFi `MedicineBox` (password `obat1234`).
+2. Sambungkan HP ke WiFi tersebut. Halaman setup terbuka otomatis. Jika tidak, buka `192.168.4.1`.
+3. Pilih **Configure WiFi**, pilih WiFi rumah (harus 2.4 GHz), isi password, **Bot token**, dan **Chat ID** (pisahkan dengan koma). Tekan **Save**.
+4. Board tersambung dan halaman setup tertutup. Data tersimpan di flash.
+
+Halaman setup terbuka lagi jika:
+- WiFi tidak tersambung selama 1 menit (misalnya pindah rumah atau ganti password router), atau
+- dikirim perintah `/setup` dari Telegram (untuk ganti token atau chat ID saat board online).
+
+Halaman setup menutup sendiri setelah 3 menit tanpa disimpan, lalu board mencoba WiFi lama lagi. Jadwal, buzzer, dan sensor tetap berjalan selama mode setup.
+
+Nama dan password WiFi setup diatur di `include/config.h` (`SETUP_AP_NAME`, `SETUP_AP_PASS`). Ganti password ini sebelum diserahkan ke klien.
+
+Opsional untuk developer: `include/secrets.h` (salin dari `secrets.example.h`) dipakai sebagai nilai awal saat flash pertama. Nilai dari halaman setup selalu menang.
 
 ## 4. Build dan flash
 Butuh PlatformIO (VS Code extension atau CLI).
@@ -49,6 +61,8 @@ Atur jadwal dari Telegram:
 | `/tunda <menit>` | tunda pengingat aktif (default 10, maks. 120) |
 | `/diam` | matikan buzzer 1 jam |
 | `/tes` | tes buzzer dan OLED |
+| `/setup` | buka halaman setup WiFi/token/chat ID selama 3 menit |
+| `/resetwifi` | hapus WiFi tersimpan, restart, lalu halaman setup terbuka (jadwal, riwayat, token tetap) |
 
 Alur pengingat:
 1. Jam jadwal tiba: buzzer bunyi, OLED tampil nama obat, Telegram kirim notifikasi dengan tombol **Sudah minum** dan **Tunda 10 menit**.
