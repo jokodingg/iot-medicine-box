@@ -65,7 +65,7 @@ Atur jadwal dari Telegram:
 | `/resetwifi` | hapus WiFi tersimpan, restart, lalu halaman setup terbuka (jadwal, riwayat, token tetap) |
 
 Alur pengingat:
-1. Jam jadwal tiba: buzzer bunyi, OLED tampil nama obat, Telegram kirim notifikasi dengan tombol **Sudah minum** dan **Tunda 10 menit**.
+1. Jam jadwal tiba: buzzer bunyi beep 3x, jeda 3 detik, berulang terus sampai obat diminum, ditunda, atau terlewat; OLED tampil nama obat, Telegram kirim notifikasi dengan tombol **Sudah minum** dan **Tunda 10 menit**.
 2. Buka pintu kompartemen dalam 30 menit: tercatat **diminum**, buzzer berhenti, konfirmasi dikirim.
 3. Belum dibuka: pengingat ulang tiap 5 menit (maks. 3x). Setelah 30 menit tercatat **terlewat** dan peringatan dikirim.
 

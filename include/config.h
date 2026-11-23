@@ -3,6 +3,7 @@
 
 #define BUZZER_ACTIVE true          // false = passive buzzer, driven with tone()
 constexpr uint16_t BUZZER_FREQ = 2700;
+constexpr uint16_t ALERT_PAUSE_MS = 3000;  // silence between groups of 3 beeps
 
 constexpr uint8_t OLED_ADDR = 0x3C;
 constexpr uint8_t OLED_ADDR_ALT = 0x3D;
